@@ -149,9 +149,6 @@ public class SimpleWebCrawler implements WebCrawler {
                     String localFilename = generateLocalFilename(completeImgUrl);
                     try {
                         Files.copy(downloader.download(completeImgUrl), Paths.get(localFilename), StandardCopyOption.REPLACE_EXISTING);
-//                        ReadableByteChannel rbc = Channels.newChannel(downloader.download(completeImgUrl));
-//                        FileOutputStream fos = new FileOutputStream(localFilename);
-//                        fos.getChannel().transferFrom(rbc, 0, Long.MAX_VALUE);
                         processedImages.put(completeImgUrl, new Image(completeImgUrl, localFilename));
                     } catch (FileNotFoundException e) {
                         System.out.println("Could not create " + localFilename);
