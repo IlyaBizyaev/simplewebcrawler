@@ -4,6 +4,9 @@ import java.io.*;
 import java.net.*;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.regex.*;
 
@@ -41,6 +44,7 @@ public class SimpleWebCrawler implements WebCrawler {
     }
 
     private static String replaceEntities(String str) {
+        // &amp;nbsp;
         return str.replaceAll("&lt;", "<")
                   .replaceAll("&gt;", ">")
                   .replaceAll("&amp;", "&")
@@ -144,9 +148,10 @@ public class SimpleWebCrawler implements WebCrawler {
                 if (!processedImages.containsKey(completeImgUrl)) {
                     String localFilename = generateLocalFilename(completeImgUrl);
                     try {
-                        ReadableByteChannel rbc = Channels.newChannel(downloader.download(completeImgUrl));
-                        FileOutputStream fos = new FileOutputStream(localFilename);
-                        fos.getChannel().transferFrom(rbc, 0, Long.MAX_VALUE);
+                        Files.copy(downloader.download(completeImgUrl), Paths.get(localFilename), StandardCopyOption.REPLACE_EXISTING);
+//                        ReadableByteChannel rbc = Channels.newChannel(downloader.download(completeImgUrl));
+//                        FileOutputStream fos = new FileOutputStream(localFilename);
+//                        fos.getChannel().transferFrom(rbc, 0, Long.MAX_VALUE);
                         processedImages.put(completeImgUrl, new Image(completeImgUrl, localFilename));
                     } catch (FileNotFoundException e) {
                         System.out.println("Could not create " + localFilename);
