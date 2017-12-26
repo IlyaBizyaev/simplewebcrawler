@@ -14,23 +14,14 @@ public class SimpleWebCrawler implements WebCrawler {
         this.downloader = downloader;
     }
 
-    private static List<String> extractTag(String blank, String tagName) {
-        List<String> list = new ArrayList<> ();
-        Pattern pattern = Pattern.compile("<" + tagName + "[\\s\\S]*?>");
-        Matcher matcher = pattern.matcher(blank);
+    private static List<String> extractTag(String source, String tag) {
+        List<String> list = new ArrayList<>();
+        Pattern pattern = Pattern.compile("<" + tag + "[\\s\\S]*?>");
+        Matcher matcher = pattern.matcher(source);
         while (matcher.find()) {
-            list.add(blank.substring(matcher.start(), matcher.end()));
-        }
-        pattern = Pattern.compile("<" + tagName  + "[\\s\\S]*" + "?</" + tagName + ">");
-        matcher = pattern.matcher(blank);
-        while (matcher.find()) {
-            list.add(blank.substring(matcher.start(), matcher.end()));
+            list.add(source.substring(matcher.start(), matcher.end()));
         }
         return list;
-    }
-
-    private static String deleteComments(String page) {
-        return page.replaceAll(  "<!--[\\s\\S]*?-->", "");
     }
 
     private static String extractAttribute(String tag, String attribute) {
@@ -39,28 +30,37 @@ public class SimpleWebCrawler implements WebCrawler {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private static String tagInsides(String tag) {
-        Pattern pattern = Pattern.compile(">(.*)<");
-        Matcher matcher = pattern.matcher(tag);
-        return matcher.find() ? matcher.group(1) : null;
+    private static String extractTitle(String source) {
+        Pattern pattern = Pattern.compile("<title>" + "([\\s\\S]*)" + "</title>");
+        Matcher matcher = pattern.matcher(source);
+        return matcher.find() ? matcher.group(1) : "";
     }
 
-    private static String generateLocalFilename(String url) {
-        try {
-            final String encoded = URLEncoder.encode(url, "UTF-8");
-            return encoded.length() < 200 ? encoded : encoded.substring(0, 200);
-        } catch (UnsupportedEncodingException e) {
-            return url.replaceAll("://", "_").replaceAll("/", "_");
-        }
+    private static String removeComments(String source) {
+        return source.replaceAll("<!--[\\s\\S]*?-->", "");
+    }
+
+    private static String replaceEntities(String str) {
+        return str.replaceAll("&lt;", "<")
+                  .replaceAll("&gt;", ">")
+                  .replaceAll("&amp;", "&")
+                  .replaceAll("&mdash;", "\u2014")
+                  .replaceAll("&nbsp;", "\u00A0");
     }
 
     private static String removeAnchor(String url) {
+        int pos = url.length();
         for (int i = 0; i < url.length(); i++) {
             if (url.charAt(i) == '#') {
-                return url.substring(0, i);
+                pos = i;
+                break;
             }
         }
-        return url;
+        return url.substring(0, pos);
+    }
+
+    private static String generateLocalFilename(String url) {
+        return url.replaceAll("://", "_").replaceAll("/", "_");
     }
 
     @Override
@@ -76,21 +76,22 @@ public class SimpleWebCrawler implements WebCrawler {
         Deque<Task> tasks = new ArrayDeque<>();
         tasks.addLast(new Task(url, depth));
 
-        Map<String, Page> processed = new HashMap<>();
+        Map<String, Page> processedPages = new HashMap<>();
+        Map<String, Image> processedImages = new HashMap<>();
         List<String> visitHistory = new ArrayList<>();
         Map<String, List<String>> pageChildren = new HashMap<>();
 
         while (!tasks.isEmpty()) {
             Task currentTask = tasks.pollFirst();
 
-            if (processed.containsKey(currentTask.url)) {
+            if (processedPages.containsKey(currentTask.url)) {
                 continue;
             }
 
             visitHistory.add(currentTask.url);
 
             if (currentTask.depth == 0) {
-                processed.put(currentTask.url, new Page(currentTask.url, ""));
+                processedPages.put(currentTask.url, new Page(currentTask.url, ""));
                 continue;
             }
 
@@ -117,22 +118,16 @@ public class SimpleWebCrawler implements WebCrawler {
             }
 
             if (pageContents == null) {
-                return new Page(currentTask.url, "");
+                processedPages.put(currentTask.url, new Page(currentTask.url, ""));
+                continue;
             }
 
-            String title = null;
-            for (String tag : extractTag(pageContents, "title")) {
-                title = tagInsides(tag);
-                if (title != null) {
-                    break;
-                }
-            }
+            String title = replaceEntities(extractTitle(pageContents));
             Page currentPage = new Page(currentTask.url, title);
 
-            pageContents = deleteComments(pageContents);
+            pageContents = removeComments(pageContents);
 
             List<String> imgList = extractTag(pageContents, "img");
-            Set<String> currentPageImages = new HashSet<>();
             for (String tag : imgList) {
                 String imgLink = extractAttribute(tag, "src");
                 if (imgLink == null) {
@@ -145,25 +140,23 @@ public class SimpleWebCrawler implements WebCrawler {
                     System.out.println(imgLink + " is not a valid URL");
                     continue;
                 }
-                String completeImgUrl = imgUrl.toString();
-                if (!currentPageImages.contains(completeImgUrl)) {
+                String completeImgUrl = replaceEntities(imgUrl.toString());
+                if (!processedImages.containsKey(completeImgUrl)) {
                     String localFilename = generateLocalFilename(completeImgUrl);
                     try {
                         ReadableByteChannel rbc = Channels.newChannel(downloader.download(completeImgUrl));
                         FileOutputStream fos = new FileOutputStream(localFilename);
                         fos.getChannel().transferFrom(rbc, 0, Long.MAX_VALUE);
-                        Image img = new Image(completeImgUrl, localFilename);
-                        currentPage.addImage(img);
-                        currentPageImages.add(completeImgUrl);
+                        processedImages.put(completeImgUrl, new Image(completeImgUrl, localFilename));
                     } catch (FileNotFoundException e) {
                         System.out.println("Could not create " + localFilename);
                     } catch (IOException e) {
                         System.out.println("Could not download " + completeImgUrl);
                     }
                 }
+                currentPage.addImage(processedImages.get(completeImgUrl));
             }
 
-            Set<String> currentPageChildren = new HashSet<>();
             List<String> aList = extractTag(pageContents, "a");
             for (String tag : aList) {
                 String childLink = extractAttribute(tag, "href");
@@ -177,25 +170,15 @@ public class SimpleWebCrawler implements WebCrawler {
                     System.out.println(childLink + " is not a valid URL");
                     continue;
                 }
-                String completeChildUrl = childUrl.toString();
+                String completeChildUrl = replaceEntities(childUrl.toString());
 
-                if (!currentPageChildren.contains(completeChildUrl)) {
-                    tasks.addLast(new Task(completeChildUrl, currentTask.depth - 1));
-                    pageChildren.putIfAbsent(currentTask.url, new ArrayList<>());
-                    pageChildren.get(currentTask.url).add(removeAnchor(completeChildUrl));
-                    currentPageChildren.add(completeChildUrl);
-                }
+                tasks.addLast(new Task(completeChildUrl, currentTask.depth - 1));
+                pageChildren.putIfAbsent(currentTask.url, new ArrayList<>());
+                pageChildren.get(currentTask.url).add(removeAnchor(completeChildUrl));
             }
 
-            processed.put(currentTask.url, currentPage);
+            processedPages.put(currentTask.url, currentPage);
         }
-
-        /*for (Map.Entry<String, List<String>> entry : pageChildren.entrySet()) {
-            String parent = entry.getKey();
-            for (String child : entry.getValue()) {
-                processed.get(parent).addLink(processed.get(child));
-            }
-        }*/
 
         ListIterator li = visitHistory.listIterator(visitHistory.size());
 
@@ -203,11 +186,11 @@ public class SimpleWebCrawler implements WebCrawler {
             String parent = (String) li.previous();
             if (pageChildren.containsKey(parent)) {
                 for (String child : pageChildren.get(parent)) {
-                    processed.get(parent).addLink(processed.get(child));
+                    processedPages.get(parent).addLink(processedPages.get(child));
                 }
             }
         }
 
-        return processed.get(url);
+        return processedPages.get(url);
     }
 }
