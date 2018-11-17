@@ -2,8 +2,6 @@ package crawler;
 
 import java.io.*;
 import java.net.*;
-import java.nio.channels.Channels;
-import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -19,7 +17,7 @@ public class SimpleWebCrawler implements WebCrawler {
 
     private static List<String> extractTag(String source, String tag) {
         List<String> list = new ArrayList<>();
-        Pattern pattern = Pattern.compile("<" + tag + "[\\s\\S]*?>");
+        Pattern pattern = Pattern.compile("<" + tag + ".*?>");
         Matcher matcher = pattern.matcher(source);
         while (matcher.find()) {
             list.add(source.substring(matcher.start(), matcher.end()));
@@ -28,13 +26,13 @@ public class SimpleWebCrawler implements WebCrawler {
     }
 
     private static String extractAttribute(String tag, String attribute) {
-        Pattern pattern = Pattern.compile(attribute + "\\s*=\\s*\"([\\s\\S]*?)\"");
+        Pattern pattern = Pattern.compile(attribute + "\\s*=\\s*\"(.*?)\"");
         Matcher matcher = pattern.matcher(tag);
         return matcher.find() ? matcher.group(1) : null;
     }
 
     private static String extractTitle(String source) {
-        Pattern pattern = Pattern.compile("<title>" + "([\\s\\S]*)" + "</title>");
+        Pattern pattern = Pattern.compile("<title>" + "(.*)" + "</title>");
         Matcher matcher = pattern.matcher(source);
         return matcher.find() ? matcher.group(1) : "";
     }
@@ -53,18 +51,22 @@ public class SimpleWebCrawler implements WebCrawler {
     }
 
     private static String removeAnchor(String url) {
-        int pos = url.length();
         for (int i = 0; i < url.length(); i++) {
             if (url.charAt(i) == '#') {
-                pos = i;
-                break;
+                return url.substring(0, i);
             }
         }
-        return url.substring(0, pos);
+        return url;
     }
 
     private static String generateLocalFilename(String url) {
-        return url.replaceAll("://", "_").replaceAll("/", "_");
+        try {
+            final String encoded = URLEncoder.encode(url, "UTF-8");
+            return encoded.length() < 200 ? encoded : encoded.substring(0, 200);
+        } catch (UnsupportedEncodingException e)
+        {
+            return url.replaceAll("://", "_").replaceAll("/", "_");
+        }
     }
 
     @Override
